@@ -18,5 +18,9 @@ export default defineNuxtConfig({
         braceStyle: '1tbs'
       }
     }
+  },
+
+  app: {
+    baseURL: process.env.NODE_ENV === 'production' ? '/chat/' : '/'
   }
 })
