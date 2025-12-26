@@ -1,4 +1,5 @@
-import type { ConnectionStatus, UseWebSocketOptions, WebSocketMessage } from '~/types/websocket'
+import type { ConnectionStatus, UseWebSocketOptions, WebSocketMessage, UserInfo } from '~/types/websocket'
+import { MessageType } from '~/types/websocket'
 
 /**
  * WebSocket Composable
@@ -19,14 +20,34 @@ export function useWebSocket(url?: string, options: UseWebSocketOptions = {}) {
   const reconnectAttempts = ref(0)
   const messages = ref<WebSocketMessage[]>([])
 
+  /** 当前用户信息 */
+  const userInfo = ref<UserInfo>({
+    id: '',
+    name: ''
+  })
+
   // 定时器
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   /**
    * 生成唯一 ID
    */
-  const generateId = () => {
-    return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+  // const generateId = () => {
+  //   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+  // }
+
+  /**
+   * 初始化用户信息
+   */
+  const initUserInfo = (settingInfo: UserInfo) => {
+    userInfo.value = settingInfo
+  }
+
+  /**
+   * 修改用户名
+   */
+  const changeUserName = (userName: string) => {
+    userInfo.value.name = userName
   }
 
   /**
@@ -40,17 +61,21 @@ export function useWebSocket(url?: string, options: UseWebSocketOptions = {}) {
   }
 
   /**
+   * 补充消息id
+   */
+  const fixMessageId = (message: WebSocketMessage) => {
+    messages.value.forEach((item: WebSocketMessage) => {
+      if (item.fromUserId === message.fromUserId && !item.id && item.sentTime === message.sentTime) {
+        item.id = message.id
+      }
+    })
+  }
+
+  /**
    * 添加消息到列表
    */
-  const addMessage = (type: 'sent' | 'received', content: string) => {
-    const message: WebSocketMessage = {
-      id: generateId(),
-      type,
-      content,
-      timestamp: Date.now()
-    }
+  const addMessage = (message: WebSocketMessage) => {
     messages.value.push(message)
-    console.log(`${type === 'sent' ? '📤' : '📨'} 消息:`, content)
   }
 
   /**
@@ -97,28 +122,40 @@ export function useWebSocket(url?: string, options: UseWebSocketOptions = {}) {
       }
 
       // 接收消息
-      ws.value.onmessage = (event) => {
-        const message = event.data
+      ws.value.onmessage = (event: MessageEvent) => {
+        console.log('event', event)
+        const message = JSON.parse(event.data)
         console.log('📨 收到消息:', message)
         
         // 忽略心跳响应
-        if (message.toLowerCase() === 'pong') {
+        // if (message.toLowerCase() === 'pong') {
+        //   return
+        // }
+
+        /** 补充消息id */
+        if (message.fromUserId === userInfo.value.id) {
+          fixMessageId(message)
           return
         }
-        
+
+        if (message.type === MessageType.SYSTEM_SETTINGS) {
+          initUserInfo(message.settingInfo)
+          return
+        }
+
         // 添加到消息列表
-        addMessage('received', message)
+        addMessage(message)
       }
 
       // 连接错误
-      ws.value.onerror = (event) => {
+      ws.value.onerror = (event: Event) => {
         console.error('❌ WebSocket 错误:', event)
         error.value = 'WebSocket 连接错误'
         status.value = 'error'
       }
 
       // 连接关闭
-      ws.value.onclose = (event) => {
+      ws.value.onclose = (event: CloseEvent) => {
         console.log('🔌 WebSocket 连接关闭', event.code, event.reason)
         status.value = 'disconnected'
 
@@ -170,7 +207,7 @@ export function useWebSocket(url?: string, options: UseWebSocketOptions = {}) {
    * 发送消息
    * @param message 消息内容
    */
-  const sendMessage = (message: string) => {
+  const sendMessage = (message: WebSocketMessage) => {
     if (!ws.value) {
       error.value = 'WebSocket 未连接'
       return false
@@ -182,8 +219,8 @@ export function useWebSocket(url?: string, options: UseWebSocketOptions = {}) {
     }
 
     try {
-      ws.value.send(message)
-      addMessage('sent', message)
+      ws.value.send(JSON.stringify(message))
+      addMessage(message)
       return true
     } catch (err) {
       console.error('❌ 发送消息失败:', err)
@@ -211,6 +248,7 @@ export function useWebSocket(url?: string, options: UseWebSocketOptions = {}) {
     error,
     reconnectAttempts,
     messages,
+    userInfo,
 
     // 方法
     connect,
@@ -218,7 +256,9 @@ export function useWebSocket(url?: string, options: UseWebSocketOptions = {}) {
     sendMessage,
     clearMessages,
     resetError,
-    formatTime
+    formatTime,
+    initUserInfo,
+    changeUserName,
   }
 }
 

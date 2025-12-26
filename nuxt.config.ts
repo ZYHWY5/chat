@@ -5,6 +5,8 @@ export default defineNuxtConfig({
     '@nuxt/ui'
   ],
 
+  css: ['~/assets/css/tailwind.css'],
+
   devtools: {
     enabled: true
   },

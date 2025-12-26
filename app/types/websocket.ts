@@ -1,11 +1,32 @@
 /**
  * WebSocket 消息类型
  */
-export interface WebSocketMessage {
+export enum MessageType {
+  USER = 'user',
+  SYSTEM = 'system',
+  SYSTEM_SETTINGS = 'system_settings'
+}
+
+/** 用户信息 */
+export interface UserInfo {
   id: string
-  type: 'sent' | 'received'
+  name: string
+}
+
+/**
+ * WebSocket 消息
+ */
+export interface WebSocketMessage {
+  id?: string
+  type: MessageType
+  fromUserId?: string
+  fromUserName?: string
   content: string
-  timestamp: number
+  sentTime: string
+  settingInfo?: {
+    id: string
+    name: string
+  }
 }
 
 /**

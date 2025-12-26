@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { MessageType } from '~/types/websocket'
+import dayjs from 'dayjs'
+
 const route = useRoute()
 const router = useRouter()
 
@@ -11,10 +14,34 @@ if (!wsUrl.value) {
 }
 
 // 使用 WebSocket
-const { connect, disconnect, status, error, messages, sendMessage, formatTime } = useWebSocket()
+const { connect, disconnect, status, error, messages, sendMessage, formatTime, userInfo, changeUserName } = useWebSocket()
 
 // 消息输入
 const messageInput = ref('')
+
+// 修改名字相关
+const showNameModal = ref(false)
+const editingName = ref('')
+
+// 打开修改名字弹窗
+const openNameModal = () => {
+  editingName.value = userInfo.value.name
+  showNameModal.value = true
+}
+
+// 保存名字
+const saveName = () => {
+  if (editingName.value.trim()) {
+    changeUserName(editingName.value.trim())
+    showNameModal.value = false
+  }
+}
+
+// 关闭弹窗
+const closeNameModal = () => {
+  showNameModal.value = false
+  editingName.value = ''
+}
 
 // 消息列表容器引用
 const messagesContainer = ref<HTMLElement | null>(null)
@@ -80,7 +107,13 @@ const goBack = () => {
 const send = () => {
   if (!messageInput.value.trim()) return
 
-  sendMessage(messageInput.value.trim())
+  sendMessage({
+    type: MessageType.USER,
+    content: messageInput.value.trim(),
+    sentTime: dayjs().format('MM/DD HH:mm'),
+    fromUserId: userInfo.value.id,
+    fromUserName: userInfo.value.name,
+  })
   messageInput.value = ''
 }
 </script>
@@ -108,13 +141,58 @@ const send = () => {
               <div class="connection-url">{{ wsUrl }}</div>
             </div>
           </div>
-          <button class="disconnect-button" @click="disconnect" :disabled="status !== 'connected'">
-            断开连接
-          </button>
+          <div class="header-right">
+            <!-- 用户名显示和编辑按钮 -->
+            <button class="user-name-button" @click="openNameModal" title="点击修改用户名">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+              <span class="user-name-text">{{ userInfo.name || '未设置' }}</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="edit-icon">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              </svg>
+            </button>
+            <button class="disconnect-button" @click="disconnect" :disabled="status !== 'connected'">
+              断开连接
+            </button>
+          </div>
         </div>
 
+        <!-- 修改名字弹窗 -->
+        <Transition name="modal">
+          <div v-if="showNameModal" class="modal-overlay" @click="closeNameModal">
+            <div class="modal-box" @click.stop>
+              <div class="modal-header">
+                <h3 class="modal-title">修改用户名</h3>
+                <button class="modal-close" @click="closeNameModal">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+              <div class="modal-body">
+                <input 
+                  v-model="editingName"
+                  type="text"
+                  class="name-input"
+                  placeholder="请输入用户名"
+                  @keyup.enter="saveName"
+                  autofocus
+                />
+              </div>
+              <div class="modal-footer">
+                <button class="modal-btn modal-btn-cancel" @click="closeNameModal">取消</button>
+                <button class="modal-btn modal-btn-confirm" @click="saveName">确定</button>
+              </div>
+            </div>
+          </div>
+        </Transition>
+
         <!-- 消息列表 -->
-        <div ref="messagesContainer" class="messages-container">
+        <div ref="messagesContainer" class="messages-container no-scrollbar">
           <div class="messages-list">
             <!-- 空状态 -->
             <div v-if="messages.length === 0" class="empty-state">
@@ -129,13 +207,36 @@ const send = () => {
 
             <!-- 消息列表 -->
             <div
-              v-for="message in messages"
+              v-for="message of messages"
               :key="message.id"
-              :class="['message', message.type === 'sent' ? 'message-sent' : 'message-received']"
             >
-              <div class="message-content">
-                <p class="message-text">{{ message.content }}</p>
-                <span class="message-time">{{ formatTime(message.timestamp) }}</span>
+              <div
+                v-if="message.type === MessageType.SYSTEM" 
+                class="message justify-center"
+              >
+                <div class="flex justify-center items-center gap-2" style="color: beige">
+                  <span class="message-text">{{ message.content }}</span>
+                  <span class="message-time">{{ message.sentTime }}</span>
+                </div>
+              </div>
+              <div
+                v-else-if="message.type === MessageType.USER"
+                class="message"
+                :class="message.fromUserId === userInfo.id ? 'message-sent' : 'message-received'"
+              >
+                <div class="flex flex-col">
+                  <div 
+                    class="text-end" 
+                    :class="message.fromUserId === userInfo.id ? 'text-end' : 'text-start'"
+                    style="color: beige"
+                  >
+                    <span>{{ message.fromUserName }}</span>
+                  </div>
+                  <div class="message-content">
+                    <p class="message-text">{{ message.content }}</p>
+                    <span class="message-time">{{ message.sentTime }}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -347,6 +448,211 @@ const send = () => {
 
 .dark .connection-url {
   color: #9ca3af;
+}
+
+.disconnect-button {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: none;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.disconnect-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.disconnect-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 头部右侧容器 */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* 用户名按钮 */
+.user-name-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: 2px solid rgba(102, 126, 234, 0.2);
+  background: rgba(255, 255, 255, 0.95);
+  color: #667eea;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.user-name-button:hover {
+  border-color: #667eea;
+  background: white;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.15);
+}
+
+.user-name-text {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-icon {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.user-name-button:hover .edit-icon {
+  opacity: 1;
+}
+
+/* 弹窗 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.modal-box {
+  background: white;
+  border-radius: 1rem;
+  width: 90%;
+  max-width: 420px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.modal-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0;
+}
+
+.modal-close {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.name-input {
+  width: 90%;
+  padding: 0.75rem 1rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.name-input:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.modal-footer {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  background: #f9fafb;
+  justify-content: flex-end;
+}
+
+.modal-btn {
+  padding: 0.625rem 1.5rem;
+  border-radius: 0.5rem;
+  border: none;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.modal-btn-cancel {
+  background: white;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+}
+
+.modal-btn-cancel:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+.modal-btn-confirm {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.modal-btn-confirm:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+/* 弹窗动画 */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.modal-enter-active .modal-box,
+.modal-leave-active .modal-box {
+  transition: all 0.3s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .modal-box,
+.modal-leave-to .modal-box {
+  transform: scale(0.95) translateY(-20px);
 }
 
 .disconnect-button {
